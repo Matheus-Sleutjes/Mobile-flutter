@@ -102,6 +102,27 @@ class AuthService extends ChangeNotifier {
   Future<void> removeEspecialidade(String nome) async {
     _especialidades.removeWhere((e) => e.nome == nome);
     await _saveEspecialidades();
+    
+    // Limpar especialidade dos usuários doutores que usam esta especialidade
+    bool usuariosAtualizados = false;
+    for (int i = 0; i < _users.length; i++) {
+      if (_users[i].role == UserRole.doutor && _users[i].especialidade == nome) {
+        _users[i] = UserModel(
+          username: _users[i].username,
+          password: _users[i].password,
+          role: _users[i].role,
+          nomeCompleto: _users[i].nomeCompleto,
+          especialidade: null, // Limpar especialidade
+        );
+        usuariosAtualizados = true;
+      }
+    }
+    
+    // Se houve mudanças nos usuários, salvar
+    if (usuariosAtualizados) {
+      await _saveUsers();
+    }
+    
     notifyListeners();
   }
 
@@ -110,6 +131,27 @@ class AuthService extends ChangeNotifier {
     if (idx != -1) {
       _especialidades[idx] = EspecialidadeModel(nome: newNome);
       await _saveEspecialidades();
+      
+      // Atualizar usuários doutores que usam esta especialidade
+      bool usuariosAtualizados = false;
+      for (int i = 0; i < _users.length; i++) {
+        if (_users[i].role == UserRole.doutor && _users[i].especialidade == oldNome) {
+          _users[i] = UserModel(
+            username: _users[i].username,
+            password: _users[i].password,
+            role: _users[i].role,
+            nomeCompleto: _users[i].nomeCompleto,
+            especialidade: newNome,
+          );
+          usuariosAtualizados = true;
+        }
+      }
+      
+      // Se houve mudanças nos usuários, salvar
+      if (usuariosAtualizados) {
+        await _saveUsers();
+      }
+      
       notifyListeners();
     }
   }
@@ -136,8 +178,19 @@ class AuthService extends ChangeNotifier {
   }
 
   Future<void> removeUser(String username) async {
+    // Remover consultas relacionadas ao usuário
+    _consultas.removeWhere((c) => c.paciente == username || c.doutor == username);
+    
+    // Remover o usuário
     _users.removeWhere((u) => u.username == username);
+    
+    // Se o usuário atual foi removido, fazer logout
+    if (_currentUser?.username == username) {
+      _currentUser = null;
+    }
+    
     await _saveUsers();
+    await _saveConsultas();
     notifyListeners();
   }
 
@@ -146,17 +199,76 @@ class AuthService extends ChangeNotifier {
     if (idx != -1) {
       _users[idx] = newUser;
       await _saveUsers();
+      
+      // Atualizar consultas que referenciam este usuário
+      bool consultasAtualizadas = false;
+      
+      // Se o username mudou, precisamos atualizar as referências nas consultas
+      if (oldUser.username != newUser.username) {
+        // Atualizar consultas onde o usuário é paciente
+        for (int i = 0; i < _consultas.length; i++) {
+          if (_consultas[i].paciente == oldUser.username) {
+            _consultas[i] = ConsultaModel(
+              paciente: newUser.username,
+              doutor: _consultas[i].doutor,
+              data: _consultas[i].data,
+              hora: _consultas[i].hora,
+            );
+            consultasAtualizadas = true;
+          }
+        }
+        
+        // Atualizar consultas onde o usuário é doutor
+        for (int i = 0; i < _consultas.length; i++) {
+          if (_consultas[i].doutor == oldUser.username) {
+            _consultas[i] = ConsultaModel(
+              paciente: _consultas[i].paciente,
+              doutor: newUser.username,
+              data: _consultas[i].data,
+              hora: _consultas[i].hora,
+            );
+            consultasAtualizadas = true;
+          }
+        }
+        
+        // Se o usuário atual foi atualizado, atualizar a referência
+        if (_currentUser?.username == oldUser.username) {
+          _currentUser = newUser;
+        }
+      }
+      
+      // Se houve mudanças nas consultas, salvar
+      if (consultasAtualizadas) {
+        await _saveConsultas();
+      }
+      
       notifyListeners();
     }
   }
 
   Future<void> updateConsulta(ConsultaModel old, ConsultaModel updated) async {
-    final idx = _consultas.indexOf(old);
+    final idx = _consultas.indexWhere((c) => 
+      c.paciente == old.paciente && 
+      c.doutor == old.doutor && 
+      c.data.isAtSameMomentAs(old.data) && 
+      c.hora == old.hora
+    );
     if (idx != -1) {
       _consultas[idx] = updated;
       await _saveConsultas();
       notifyListeners();
     }
+  }
+
+  Future<void> removeConsulta(ConsultaModel consulta) async {
+    _consultas.removeWhere((c) => 
+      c.paciente == consulta.paciente && 
+      c.doutor == consulta.doutor && 
+      c.data.isAtSameMomentAs(consulta.data) && 
+      c.hora == consulta.hora
+    );
+    await _saveConsultas();
+    notifyListeners();
   }
 
   void logout() {
@@ -172,5 +284,24 @@ class AuthService extends ChangeNotifier {
       orElse: () => UserModel.empty(),
     );
     return user.isEmpty ? username : user.nomeCompleto;
+  }
+
+  // Método para obter informações completas de um usuário
+  String getInfoCompleta(String username) {
+    final user = _users.firstWhere(
+      (u) => u.username == username,
+      orElse: () => UserModel.empty(),
+    );
+    if (user.isEmpty) return username;
+    
+    if (user.role == UserRole.doutor && user.especialidade != null && user.especialidade!.isNotEmpty) {
+      return '${user.nomeCompleto} • ${user.especialidade}';
+    }
+    return user.nomeCompleto;
+  }
+
+  // Método para forçar atualização das consultas
+  void refreshConsultas() {
+    notifyListeners();
   }
 } 
