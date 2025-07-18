@@ -61,6 +61,21 @@ class EspecialidadesScreen extends StatelessWidget {
                         return Card(
                           child: ListTile(
                             title: Text(e.nome),
+                            subtitle: Builder(
+                              builder: (context) {
+                                final doutoresVinculados = auth.getDoutoresVinculados(e.nome);
+                                if (doutoresVinculados.isNotEmpty) {
+                                  return Text(
+                                    '${doutoresVinculados.length} doutor(es) vinculado(s)',
+                                    style: TextStyle(
+                                      color: Colors.orange[700],
+                                      fontSize: 12,
+                                    ),
+                                  );
+                                }
+                                return const SizedBox.shrink();
+                              },
+                            ),
                             trailing: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
@@ -94,27 +109,65 @@ class EspecialidadesScreen extends StatelessWidget {
                                   },
                                 ),
                                 IconButton(
-                                  icon: const Icon(Icons.delete, color: Colors.red),
+                                  icon: Icon(
+                                    Icons.delete, 
+                                    color: auth.podeRemoverEspecialidade(e.nome) ? Colors.red : Colors.grey,
+                                  ),
+                                  tooltip: auth.podeRemoverEspecialidade(e.nome) 
+                                    ? 'Remover especialidade' 
+                                    : 'Não é possível remover - há doutores vinculados',
                                   onPressed: () async {
+                                    // Verificar quantos doutores estão vinculados
+                                    final doutoresVinculados = auth.getDoutoresVinculados(e.nome);
+                                    
+                                    String mensagemConfirmacao;
+                                    if (doutoresVinculados.isNotEmpty) {
+                                      mensagemConfirmacao = 'Não é possível remover a especialidade "${e.nome}" pois há ${doutoresVinculados.length} doutor(es) vinculado(s) a ela:\n\n${doutoresVinculados.map((d) => '• ${d.nomeCompleto}').join('\n')}';
+                                    } else {
+                                      mensagemConfirmacao = 'Deseja remover a especialidade "${e.nome}"?';
+                                    }
+                                    
                                     final confirm = await showDialog<bool>(
                                       context: context,
                                       builder: (ctx) => AlertDialog(
                                         title: const Text('Remover Especialidade'),
-                                        content: Text('Deseja remover a especialidade "${e.nome}"?'),
+                                        content: Text(mensagemConfirmacao),
                                         actions: [
                                           TextButton(
                                             onPressed: () => Navigator.of(ctx).pop(false),
-                                            child: const Text('Cancelar'),
+                                            child: const Text('OK'),
                                           ),
-                                          ElevatedButton(
-                                            onPressed: () => Navigator.of(ctx).pop(true),
-                                            child: const Text('Remover'),
-                                          ),
+                                          if (doutoresVinculados.isEmpty)
+                                            ElevatedButton(
+                                              onPressed: () => Navigator.of(ctx).pop(true),
+                                              child: const Text('Remover'),
+                                            ),
                                         ],
                                       ),
                                     );
                                     if (confirm == true) {
-                                      await auth.removeEspecialidade(e.nome);
+                                      final success = await auth.removeEspecialidade(e.nome);
+                                      if (!success) {
+                                        // Mostrar mensagem de erro se há doutores vinculados
+                                        if (context.mounted) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(
+                                              content: Text('Não é possível remover a especialidade "${e.nome}" pois há doutores vinculados a ela.'),
+                                              backgroundColor: Colors.red,
+                                              duration: const Duration(seconds: 4),
+                                            ),
+                                          );
+                                        }
+                                      } else {
+                                        if (context.mounted) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(
+                                              content: Text('Especialidade removida com sucesso!'),
+                                              backgroundColor: Colors.green,
+                                            ),
+                                          );
+                                        }
+                                      }
                                     }
                                   },
                                 ),

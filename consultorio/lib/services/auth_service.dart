@@ -99,31 +99,23 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> removeEspecialidade(String nome) async {
+  Future<bool> removeEspecialidade(String nome) async {
+    // Verificar se há doutores vinculados a esta especialidade
+    final doutoresVinculados = _users.where((u) => 
+      u.role == UserRole.doutor && 
+      u.especialidade == nome
+    ).toList();
+    
+    if (doutoresVinculados.isNotEmpty) {
+      // Retornar false para indicar que a remoção foi negada
+      return false;
+    }
+    
+    // Se não há doutores vinculados, remover a especialidade
     _especialidades.removeWhere((e) => e.nome == nome);
     await _saveEspecialidades();
-    
-    // Limpar especialidade dos usuários doutores que usam esta especialidade
-    bool usuariosAtualizados = false;
-    for (int i = 0; i < _users.length; i++) {
-      if (_users[i].role == UserRole.doutor && _users[i].especialidade == nome) {
-        _users[i] = UserModel(
-          username: _users[i].username,
-          password: _users[i].password,
-          role: _users[i].role,
-          nomeCompleto: _users[i].nomeCompleto,
-          especialidade: null, // Limpar especialidade
-        );
-        usuariosAtualizados = true;
-      }
-    }
-    
-    // Se houve mudanças nos usuários, salvar
-    if (usuariosAtualizados) {
-      await _saveUsers();
-    }
-    
     notifyListeners();
+    return true;
   }
 
   Future<void> editEspecialidade(String oldNome, String newNome) async {
@@ -303,5 +295,18 @@ class AuthService extends ChangeNotifier {
   // Método para forçar atualização das consultas
   void refreshConsultas() {
     notifyListeners();
+  }
+
+  // Método para verificar se uma especialidade pode ser removida
+  List<UserModel> getDoutoresVinculados(String nomeEspecialidade) {
+    return _users.where((u) => 
+      u.role == UserRole.doutor && 
+      u.especialidade == nomeEspecialidade
+    ).toList();
+  }
+
+  // Método para verificar se uma especialidade pode ser removida
+  bool podeRemoverEspecialidade(String nomeEspecialidade) {
+    return getDoutoresVinculados(nomeEspecialidade).isEmpty;
   }
 } 
